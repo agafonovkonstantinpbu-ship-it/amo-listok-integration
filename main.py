@@ -10,6 +10,10 @@ LISTOK_TOKEN = os.getenv("LISTOK_TOKEN")
 LISTOK_OFFICE_ID = int(os.getenv("LISTOK_OFFICE_ID", 1))
 LISTOK_SOURCE_ID = int(os.getenv("LISTOK_SOURCE_ID", 1))
 
+# ID и секрет интеграции для OAuth
+INTEGRATION_ID = "a1c0f26c-1d41-45cd-b7ca-1d2656fbad4b"
+INTEGRATION_SECRET = "sEvvTEVdgb34RxCBDSXptlolTyzMhlTbK2XHLKQ"
+
 @app.route('/')
 def health():
     return "OK", 200
@@ -30,34 +34,30 @@ def amo_to_listok():
             if 'phone' in key_lower or 'tel' in key_lower or 'mobile' in key_lower:
                 val = str(value)
                 digits = re.sub(r'\D', '', val)
-                # Проверяем что это телефон, а не timestamp
                 if len(digits) >= 10 and not digits.startswith('1'):
                     if len(digits) == 11:
                         phone_candidates.append(digits)
                     elif len(digits) == 10 and digits[0] in '789':
                         phone_candidates.append('7' + digits)
         
-        # Шаг 2: Если не нашли по ключам, ищем форматы телефонов (с +, -, скобками)
+        # Шаг 2: Если не нашли по ключам, ищем форматы телефонов
         if not phone_candidates:
             for value in data.values():
                 val = str(value)
-                # Ищем паттерны типа +7 (999) 123-45-67 или 8-999-123-45-67
                 matches = re.findall(r'(?:\+7|8)[\s\-\(\)]?\d{3}[\s\-\(\)]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}', val)
                 for match in matches:
                     digits = re.sub(r'\D', '', match)
                     if len(digits) == 11:
                         phone_candidates.append(digits)
         
-        # Шаг 3: Если всё ещё не нашли, ищем просто 10-11 цифр, но НЕ timestamps
+        # Шаг 3: Ищем просто 10-11 цифр, но НЕ timestamps
         if not phone_candidates:
             for value in data.values():
                 val = str(value)
                 digits = re.sub(r'\D', '', val)
-                # Timestamps обычно начинаются с 1 и имеют 10 цифр (типа 1778509428)
-                # Телефоны России начинаются с 7, 8 или 9
                 if len(digits) == 11 and digits[0] in '78':
                     phone_candidates.append(digits)
-                elif len(digits) == 10 and digits[0] in '9834':  # 9XX, 8XX, 3XX, 4XX
+                elif len(digits) == 10 and digits[0] in '9834':
                     phone_candidates.append('7' + digits)
         
         # Берем первый найденный номер
@@ -79,10 +79,12 @@ def amo_to_listok():
         if not phone:
             return jsonify({"error": "Phone not found"}), 400
 
-        # ВАРИАНТ 2: Токен с префиксом "Token"
+        # Используем Bearer токен
         headers = {
-            "Authorization": f"Token {LISTOK_TOKEN}",
-            "Content-Type": "application/json"
+            "Authorization": f"Bearer {LISTOK_TOKEN}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "X-Requested-With": "XMLHttpRequest"
         }
         
         # Проверяем существование
@@ -130,6 +132,46 @@ def amo_to_listok():
     except Exception as e:
         print(f"💥 Ошибка: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/callback')
+def callback():
+    """Обработка OAuth callback и получение access token"""
+    code = request.args.get('code')
+    if not code:
+        return "❌ Код не получен. Проверь URL.", 400
+    
+    print(f"📥 Получен код: {code[:50]}...")
+    
+    # Данные для обмена кода на токен
+    token_url = "https://an10569.listokcrm.ru/oauth/token"
+    payload = {
+        "grant_type": "authorization_code",
+        "client_id": INTEGRATION_ID,
+        "client_secret": INTEGRATION_SECRET,
+        "redirect_uri": "https://amo-listok-integration.onrender.com/callback",
+        "code": code
+    }
+    
+    try:
+        resp = requests.post(token_url, json=payload)
+        print(f"📤 Ответ от ListOK: {resp.status_code}")
+        
+        if resp.status_code == 200:
+            data = resp.json()
+            access_token = data.get('access_token')
+            refresh_token = data.get('refresh_token')
+            
+            print(f"✅✅✅ УСПЕХ! ACCESS TOKEN: {access_token} ✅✅✅")
+            print(f"🔄 Refresh Token: {refresh_token}")
+            
+            return f"✅ Токен получен! Проверь логи на Render.<br><br>Access Token: {access_token}<br><br>Скопируй этот токен и вставь в переменную LISTOK_TOKEN на Render!"
+        else:
+            print(f"❌ Ошибка: {resp.text}")
+            return f"Ошибка {resp.status_code}: {resp.text}"
+            
+    except Exception as e:
+        print(f"❌ Исключение: {str(e)}")
+        return f"Ошибка: {str(e)}"
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.getenv("PORT", 5000)))
