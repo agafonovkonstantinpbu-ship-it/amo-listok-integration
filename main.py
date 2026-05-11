@@ -43,7 +43,7 @@ def amo_to_listok():
             contact = data['_embedded'].get('contacts', [{}])[0]
         elif 'contacts' in data:
             contact = data['contacts'][0] if data['contacts'] else {}
-        elif 'id' in data and 'name' in 
+        elif 'id' in data and 'name' in data: 
             # Возможно данные приходят сразу как контакт
             contact = data
         else:
