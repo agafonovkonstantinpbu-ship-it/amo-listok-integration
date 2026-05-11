@@ -16,58 +16,84 @@ def health():
 
 @app.route('/amo-to-listok', methods=['POST'])
 def amo_to_listok():
-    data = request.form.to_dict() if request.form else request.get_json(silent=True) or {}
-    
-    # Ищем телефон - любые 10-11 цифр подряд
-    phone = ''
-    for value in data.values():
-        val = str(value)
-        digits = re.sub(r'\D', '', val)  # Оставляем только цифры
-        if len(digits) == 11 and digits[0] in '78':
-            phone = digits
-            break
-        elif len(digits) == 10:
-            phone = '7' + digits
-            break
-    
-    # Ищем имя
-    name = 'Клиент'
-    for key, value in data.items():
-        if key.endswith('[name]') and value:
-            name = str(value)
-            break
-    
-    if not phone:
-        return jsonify({"error": "No phone found", "data": data}), 400
-    
-    # Отправляем в ListOK
-    headers = {
-        "Authorization": f"Bearer {LISTOK_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    
-    # Проверяем существование
-    check = requests.get(f"{LISTOK_DOMAIN}/api/external/v2/contacts?phone={phone}", headers=headers)
-    if check.status_code == 200 and check.json().get('data'):
-        return jsonify({"status": "exists"}), 200
-    
-    # Создаем
-    resp = requests.post(
-        f"{LISTOK_DOMAIN}/api/external/v2/contacts",
-        headers=headers,
-        json={
-            "name": name,
-            "phone": phone,
-            "email": "",
-            "gender": "female",
-            "can_sms": True,
-            "can_email": True,
-            "added_office_id": LISTOK_OFFICE_ID,
-            "source_id": LISTOK_SOURCE_ID
+    try:
+        data = request.form.to_dict() if request.form else request.get_json(silent=True) or {}
+        
+        print(f"📥 Получены данные от АМО. Всего полей: {len(data)}")
+
+        # Ищем телефон
+        phone = ''
+        for value in data.values():
+            val = str(value)
+            digits = re.sub(r'\D', '', val)
+            if len(digits) == 11 and digits[0] in '78':
+                phone = digits
+                break
+            elif len(digits) == 10:
+                phone = '7' + digits
+                break
+        
+        # Ищем имя
+        name = 'Клиент'
+        for key, value in data.items():
+            if key.endswith('[name]') and value:
+                name = str(value)
+                break
+        
+        print(f"🔍 Найдено: Имя='{name}', Телефон='{phone}'")
+
+        if not phone:
+            return jsonify({"error": "No phone found"}), 400
+        
+        headers = {
+            "Authorization": f"Bearer {LISTOK_TOKEN}",
+            "Content-Type": "application/json"
         }
-    )
-    
-    return jsonify({"status": "ok", "code": resp.status_code}), 200 if resp.status_code in [200, 201] else 500
+        
+        # Проверяем существование (теперь безопасно)
+        try:
+            check = requests.get(f"{LISTOK_DOMAIN}/api/external/v2/contacts?phone={phone}", headers=headers)
+            print(f"🔍 Check ListOK status: {check.status_code}")
+            print(f"🔍 Check ListOK text: {check.text[:100]}") # Показываем начало ответа
+            
+            if check.status_code == 200:
+                try:
+                    resp_data = check.json()
+                    if resp_data.get('data'):
+                         print(f"✅ Клиент уже существует в ListOK")
+                         return jsonify({"status": "exists"}), 200
+                except ValueError:
+                    print("⚠️ Ответ от ListOK не JSON при проверке")
+        except Exception as e:
+            print(f"❌ Ошибка при проверке: {e}")
+
+        # Создаем
+        print(f"📤 Создаем клиента: {name}, {phone}")
+        resp = requests.post(
+            f"{LISTOK_DOMAIN}/api/external/v2/contacts",
+            headers=headers,
+            json={
+                "name": name,
+                "phone": phone,
+                "email": "",
+                "gender": "female",
+                "can_sms": True,
+                "can_email": True,
+                "added_office_id": LISTOK_OFFICE_ID,
+                "source_id": LISTOK_SOURCE_ID
+            }
+        )
+        
+        print(f"📤 Ответ ListOK: {resp.status_code} - {resp.text[:200]}")
+        
+        if resp.status_code in [200, 201]:
+             return jsonify({"status": "ok"}), 200
+        else:
+             return jsonify({"status": "error", "details": resp.text}), 500
+
+    except Exception as e:
+        print(f"💥 Глобальная ошибка: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.getenv("PORT", 5000)))
