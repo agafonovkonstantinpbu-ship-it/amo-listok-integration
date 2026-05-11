@@ -1,3 +1,25 @@
+from flask import Flask, request, jsonify
+import requests
+import os
+
+# Создание Flask приложения
+app = Flask(__name__)
+
+# ⚙️ НАСТРОЙКИ ИЗ ПЕРЕМЕННЫХ ОКРУЖЕНИЯ
+LISTOK_DOMAIN = os.getenv("LISTOK_DOMAIN", "https://an10569.listokcrm.ru")
+LISTOK_TOKEN = os.getenv("LISTOK_TOKEN")
+LISTOK_OFFICE_ID = int(os.getenv("LISTOK_OFFICE_ID", 1))
+LISTOK_SOURCE_ID = int(os.getenv("LISTOK_SOURCE_ID", 1))
+
+# Маршрут для проверки работоспособности
+@app.route('/')
+def health():
+    return jsonify({
+        "status": "ok",
+        "message": "Интеграция AMO → ListOK работает!"
+    }), 200
+
+# Основной маршрут для получения вебхуков от AMO
 @app.route('/amo-to-listok', methods=['POST'])
 def amo_to_listok():
     try:
@@ -40,6 +62,7 @@ def amo_to_listok():
         phone = ''.join(filter(str.isdigit, phone))
         
         if not phone and not email:
+            print("❌ Нет телефона или email")
             return jsonify({"status": "error", "message": "Нет телефона или email"}), 400
         
         # Заголовки для API ListOK
@@ -76,6 +99,8 @@ def amo_to_listok():
             "source_id": LISTOK_SOURCE_ID
         }
         
+        print(f"📤 Отправляем в ListOK: {payload}")
+        
         response = requests.post(
             f"{LISTOK_DOMAIN}/api/external/v2/contacts",
             headers=headers,
@@ -102,3 +127,13 @@ def amo_to_listok():
         import traceback
         print(traceback.format_exc())
         return jsonify({"status": "error", "message": str(e)}), 500
+
+# Маршрут для OAuth callback (если понадобится)
+@app.route('/callback')
+def callback():
+    return jsonify({"status": "ok", "message": "Callback received"}), 200
+
+# Запуск приложения
+if __name__ == '__main__':
+    port = int(os.getenv("PORT", 5000))
+    app.run(host='0.0.0.0', port=port, debug=True)
