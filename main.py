@@ -39,7 +39,7 @@ def amo_to_listok():
         print(f"📥 Данные: {json.dumps(data, ensure_ascii=False)[:1000]}")
         
         # Извлекаем данные контакта
-        if '_embedded' in 
+        if '_embedded' in data:
             contact = data['_embedded'].get('contacts', [{}])[0]
         elif 'contacts' in data:
             contact = data['contacts'][0] if data['contacts'] else {}
