@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 import requests
 import os
+import json
 
 # Создание Flask приложения
 app = Flask(__name__)
@@ -27,42 +28,68 @@ def amo_to_listok():
         if request.is_json:
             data = request.get_json()
         else:
-            # Если не JSON, пробуем получить как form data
             data = request.form.to_dict() if request.form else request.get_json(silent=True) or {}
         
-        print(f"📥 Получен вебхук от AMO: {type(data)}")
+        # 🔥 ПОЛНОЕ ЛОГИРОВАНИЕ для отладки
+        print(f"📥 Получен вебхук от AMO")
+        print(f"📥 Тип данных: {type(data)}")
+        print(f"📥 Ключи: {data.keys() if isinstance(data, dict) else 'N/A'}")
         
-        # Извлекаем данные контакта (структура может отличаться)
-        if '_embedded' in data:
+        # Выводим первые 1000 символов данных
+        print(f"📥 Данные: {json.dumps(data, ensure_ascii=False)[:1000]}")
+        
+        # Извлекаем данные контакта
+        if '_embedded' in 
             contact = data['_embedded'].get('contacts', [{}])[0]
         elif 'contacts' in data:
             contact = data['contacts'][0] if data['contacts'] else {}
+        elif 'id' in data and 'name' in 
+            # Возможно данные приходят сразу как контакт
+            contact = data
         else:
             contact = data
         
+        print(f"📥 Контакт: {json.dumps(contact, ensure_ascii=False)[:1000]}")
+        
         name = contact.get('name', 'Без имени')
         
-        # Извлечение телефона
+        # Извлечение телефона - пробуем разные варианты
         phone = ''
-        for field in contact.get('custom_fields', []):
+        custom_fields = contact.get('custom_fields', [])
+        
+        print(f"📥 Custom fields count: {len(custom_fields)}")
+        
+        for field in custom_fields:
             field_name = field.get('name', '').lower()
+            field_id = field.get('id')
+            values = field.get('values', [])
+            
+            print(f"🔍 Поле ID={field_id}, name='{field_name}', values={values}")
+            
             if 'телефон' in field_name or 'phone' in field_name or 'tel' in field_name:
-                phone = field.get('values', [{}])[0].get('value', '')
+                if values:
+                    phone = values[0].get('value', '')
+                    print(f"✅ Найден телефон: {phone}")
                 break
         
         # Извлечение email
         email = ''
-        for field in contact.get('custom_fields', []):
+        for field in custom_fields:
             field_name = field.get('name', '').lower()
             if 'email' in field_name or 'почта' in field_name:
-                email = field.get('values', [{}])[0].get('value', '')
+                values = field.get('values', [])
+                if values:
+                    email = values[0].get('value', '')
+                    print(f"✅ Найден email: {email}")
                 break
         
         # Очистка телефона (оставляем только цифры)
         phone = ''.join(filter(str.isdigit, phone))
         
         if not phone and not email:
-            print("❌ Нет телефона или email")
+            print(f"❌ Нет телефона или email!")
+            print(f"❌ Имя: {name}")
+            print(f"❌ Все поля: {list(contact.keys())}")
             return jsonify({"status": "error", "message": "Нет телефона или email"}), 400
         
         # Заголовки для API ListOK
@@ -128,7 +155,7 @@ def amo_to_listok():
         print(traceback.format_exc())
         return jsonify({"status": "error", "message": str(e)}), 500
 
-# Маршрут для OAuth callback (если понадобится)
+# Маршрут для OAuth callback
 @app.route('/callback')
 def callback():
     return jsonify({"status": "ok", "message": "Callback received"}), 200
