@@ -1,27 +1,23 @@
-from flask import Flask, request, jsonify
-import requests
-import os
-
-app = Flask(__name__)
-
-# ⚙️ НАСТРОЙКИ ИЗ ПЕРЕМЕННЫХ ОКРУЖЕНИЯ
-LISTOK_DOMAIN = os.getenv("LISTOK_DOMAIN", "https://an10569.listokcrm.ru")
-LISTOK_TOKEN = os.getenv("LISTOK_TOKEN")
-LISTOK_OFFICE_ID = int(os.getenv("LISTOK_OFFICE_ID", 1))
-LISTOK_SOURCE_ID = int(os.getenv("LISTOK_SOURCE_ID", 1))
-
-@app.route('/')
-def health():
-    return "✅ Интеграция AMO → ListOK работает!"
-
 @app.route('/amo-to-listok', methods=['POST'])
 def amo_to_listok():
     try:
-        data = request.json
-        print(f"📥 Получен вебхук от AMO: {data}")
+        # Пробуем получить данные разными способами
+        if request.is_json:
+            data = request.get_json()
+        else:
+            # Если не JSON, пробуем получить как form data
+            data = request.form.to_dict() if request.form else request.get_json(silent=True) or {}
         
-        # Извлекаем данные контакта
-        contact = data.get('_embedded', {}).get('contacts', [{}])[0]
+        print(f"📥 Получен вебхук от AMO: {type(data)}")
+        
+        # Извлекаем данные контакта (структура может отличаться)
+        if '_embedded' in data:
+            contact = data['_embedded'].get('contacts', [{}])[0]
+        elif 'contacts' in data:
+            contact = data['contacts'][0] if data['contacts'] else {}
+        else:
+            contact = data
+        
         name = contact.get('name', 'Без имени')
         
         # Извлечение телефона
@@ -73,7 +69,7 @@ def amo_to_listok():
             "name": name,
             "phone": phone,
             "email": email,
-            "gender": "female",  # можно менять на "male" или определять
+            "gender": "female",
             "can_sms": True,
             "can_email": True,
             "added_office_id": LISTOK_OFFICE_ID,
@@ -103,8 +99,6 @@ def amo_to_listok():
             
     except Exception as e:
         print(f"❌ Ошибка: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
         return jsonify({"status": "error", "message": str(e)}), 500
-
-if __name__ == '__main__':
-    port = int(os.getenv("PORT", 5000))
-    app.run(host='0.0.0.0', port=port, debug=True)
