@@ -79,9 +79,9 @@ def amo_to_listok():
         if not phone:
             return jsonify({"error": "Phone not found"}), 400
 
-        # ВАРИАНТ 1: Токен без префикса
+        # ВАРИАНТ 2: Токен с префиксом "Token"
         headers = {
-            "Authorization": LISTOK_TOKEN,
+            "Authorization": f"Token {LISTOK_TOKEN}",
             "Content-Type": "application/json"
         }
         
