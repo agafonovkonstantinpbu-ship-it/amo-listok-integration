@@ -19,46 +19,53 @@ def amo_to_listok():
     try:
         data = request.form.to_dict() if request.form else request.get_json(silent=True) or {}
         
-        print(f"📥 Получены данные. Полей: {len(data)}")
+        print(f"📥 Получено данных: {len(data)}")
 
         phone = ''
+        phone_candidates = []
         
-        # 1. Сначала ищем значения, похожие на телефон по формату (+, -, скобки)
-        for value in data.values():
-            val = str(value)
-            if any(c in val for c in ['+', '(', ')', '-']):
+        # Шаг 1: Ищем в ключах, содержащих 'phone', 'tel', 'mobile'
+        for key, value in data.items():
+            key_lower = key.lower()
+            if 'phone' in key_lower or 'tel' in key_lower or 'mobile' in key_lower:
+                val = str(value)
                 digits = re.sub(r'\D', '', val)
-                if len(digits) == 11:
-                    phone = digits
-                    print(f"✅ Найден форматированный номер: {phone}")
-                    break
-                elif len(digits) == 10 and digits[0] in '98':
-                    phone = '7' + digits
-                    print(f"✅ Найден форматированный номер (10 цифр): {phone}")
-                    break
+                # Проверяем что это телефон, а не timestamp
+                if len(digits) >= 10 and not digits.startswith('1'):
+                    if len(digits) == 11:
+                        phone_candidates.append(digits)
+                    elif len(digits) == 10 and digits[0] in '789':
+                        phone_candidates.append('7' + digits)
         
-        # 2. Если не нашли, ищем просто 11 цифр, начинающихся на 7 или 8
-        if not phone:
+        # Шаг 2: Если не нашли по ключам, ищем форматы телефонов (с +, -, скобками)
+        if not phone_candidates:
+            for value in data.values():
+                val = str(value)
+                # Ищем паттерны типа +7 (999) 123-45-67 или 8-999-123-45-67
+                matches = re.findall(r'(?:\+7|8)[\s\-\(\)]?\d{3}[\s\-\(\)]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}', val)
+                for match in matches:
+                    digits = re.sub(r'\D', '', match)
+                    if len(digits) == 11:
+                        phone_candidates.append(digits)
+        
+        # Шаг 3: Если всё ещё не нашли, ищем просто 10-11 цифр, но НЕ timestamps
+        if not phone_candidates:
             for value in data.values():
                 val = str(value)
                 digits = re.sub(r'\D', '', val)
+                # Timestamps обычно начинаются с 1 и имеют 10 цифр (типа 1778509428)
+                # Телефоны России начинаются с 7, 8 или 9
                 if len(digits) == 11 and digits[0] in '78':
-                    # Исключаем таймстампы (обычно начинаются на 1, но на всякий случай)
-                    if not digits.startswith('1'): 
-                        phone = digits
-                        print(f"✅ Найден номер (11 цифр): {phone}")
-                        break
+                    phone_candidates.append(digits)
+                elif len(digits) == 10 and digits[0] in '9834':  # 9XX, 8XX, 3XX, 4XX
+                    phone_candidates.append('7' + digits)
         
-        # 3. Если не нашли, ищем 10 цифр, начинающихся на 9 (мобильный без кода) или 8
-        if not phone:
-            for value in data.values():
-                val = str(value)
-                digits = re.sub(r'\D', '', val)
-                if len(digits) == 10 and digits[0] in '9834':
-                    # Исключаем таймстампы (начинаются на 1)
-                    phone = '7' + digits
-                    print(f"✅ Найден номер (10 цифр): {phone}")
-                    break
+        # Берем первый найденный номер
+        if phone_candidates:
+            phone = phone_candidates[0]
+            print(f"✅ Найдено телефонов: {len(phone_candidates)}, используем: {phone}")
+        else:
+            print("❌ Телефоны не найдены")
 
         # Имя
         name = 'Клиент'
@@ -70,31 +77,32 @@ def amo_to_listok():
         print(f"🔍 Итог: Имя='{name}', Телефон='{phone}'")
         
         if not phone:
-            print("❌ Телефон не найден!")
             return jsonify({"error": "Phone not found"}), 400
 
+        # ВАРИАНТ 1: Токен без префикса
         headers = {
-            "Authorization": f"Bearer {LISTOK_TOKEN}",
+            "Authorization": LISTOK_TOKEN,
             "Content-Type": "application/json"
         }
         
         # Проверяем существование
         try:
-            check = requests.get(f"{LISTOK_DOMAIN}/api/external/v2/contacts?phone={phone}", headers=headers)
+            check = requests.get(f"{LISTOK_DOMAIN}/api/external/v2/contacts?phone={phone}", headers=headers, timeout=5)
             print(f"🔍 Check ListOK status: {check.status_code}")
-            # Если ответ не JSON (например, HTML страница ошибки), выводим начало
-            if 'application/json' not in check.headers.get('Content-Type', ''):
-                 print(f"⚠️ Ответ ListOK не JSON: {check.text[:100]}")
-            else:
-                resp_data = check.json()
-                if resp_data.get('data'):
-                    print(f"✅ Клиент уже существует")
-                    return jsonify({"status": "exists"}), 200
+            
+            if check.status_code == 200:
+                try:
+                    resp_data = check.json()
+                    if resp_data.get('data'):
+                        print(f"✅ Клиент уже существует")
+                        return jsonify({"status": "exists"}), 200
+                except:
+                    print(f"⚠️ Ответ не JSON: {check.text[:100]}")
         except Exception as e:
-            print(f"❌ Ошибка проверки: {e}")
+            print(f"⚠️ Ошибка проверки: {e}")
 
         # Создаем
-        print(f"📤 Создаем клиента: {name}, {phone}")
+        print(f"📤 Создаем: {name}, {phone}")
         resp = requests.post(
             f"{LISTOK_DOMAIN}/api/external/v2/contacts",
             headers=headers,
@@ -107,14 +115,16 @@ def amo_to_listok():
                 "can_email": True,
                 "added_office_id": LISTOK_OFFICE_ID,
                 "source_id": LISTOK_SOURCE_ID
-            }
+            },
+            timeout=10
         )
         
-        print(f"📤 Ответ ListOK: {resp.status_code} - {resp.text[:200]}")
+        print(f"📤 Ответ ListOK: {resp.status_code}")
         
         if resp.status_code in [200, 201]:
              return jsonify({"status": "ok"}), 200
         else:
+             print(f"❌ Ошибка: {resp.text[:200]}")
              return jsonify({"status": "error", "details": resp.text}), 500
 
     except Exception as e:
