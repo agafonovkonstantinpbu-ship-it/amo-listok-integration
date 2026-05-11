@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 import requests
 import os
 import json
+import re
 
 # Создание Flask приложения
 app = Flask(__name__)
@@ -24,82 +25,105 @@ def health():
 @app.route('/amo-to-listok', methods=['POST'])
 def amo_to_listok():
     try:
-        # Пробуем получить данные разными способами
+        # Получаем данные
         if request.is_json:
             data = request.get_json()
         else:
             data = request.form.to_dict() if request.form else request.get_json(silent=True) or {}
         
-        # 🔥 ПОЛНОЕ ЛОГИРОВАНИЕ для отладки
-        print(f"📥 Получен вебхук от AMO")
+        print(f"📥 Получен вебхук от АМО")
         print(f"📥 Тип данных: {type(data)}")
-        print(f"📥 Ключи: {data.keys() if isinstance(data, dict) else 'N/A'}")
         
-        # Выводим первые 1000 символов данных
-        print(f"📥 Данные: {json.dumps(data, ensure_ascii=False)[:1000]}")
-        
-        # Извлекаем данные контакта
-        if '_embedded' in data:
-            contact = data['_embedded'].get('contacts', [{}])[0]
-        elif 'contacts' in data:
-            contact = data['contacts'][0] if data['contacts'] else {}
-        elif 'id' in data and 'name' in data: 
-            # Возможно данные приходят сразу как контакт
-            contact = data
-        else:
-            contact = data
-        
-        print(f"📥 Контакт: {json.dumps(contact, ensure_ascii=False)[:1000]}")
-        
-        name = contact.get('name', 'Без имени')
-        
-        # Извлечение телефона - пробуем разные варианты
+        name = 'Без имени'
         phone = ''
-        custom_fields = contact.get('custom_fields', [])
-        
-        print(f"📥 Custom fields count: {len(custom_fields)}")
-        
-        for field in custom_fields:
-            field_name = field.get('name', '').lower()
-            field_id = field.get('id')
-            values = field.get('values', [])
-            
-            print(f"🔍 Поле ID={field_id}, name='{field_name}', values={values}")
-            
-            if 'телефон' in field_name or 'phone' in field_name or 'tel' in field_name:
-                if values:
-                    phone = values[0].get('value', '')
-                    print(f"✅ Найден телефон: {phone}")
-                break
-        
-        # Извлечение email
         email = ''
-        for field in custom_fields:
-            field_name = field.get('name', '').lower()
-            if 'email' in field_name or 'почта' in field_name:
-                values = field.get('values', [])
-                if values:
-                    email = values[0].get('value', '')
-                    print(f"✅ Найден email: {email}")
-                break
+
+        # 1. Попытка стандартного парсинга (если пришел JSON с контактом)
+        if '_embedded' in data and 'contacts' in data.get('_embedded', {}):
+            contact = data['_embedded']['contacts'][0]
+            name = contact.get('name', 'Без имени')
+            
+            # Поиск телефона в custom_fields
+            custom_fields = contact.get('custom_fields', [])
+            for field in custom_fields:
+                field_name = field.get('name', '').lower()
+                if 'телефон' in field_name or 'phone' in field_name or 'tel' in field_name:
+                    values = field.get('values', [])
+                    if values:
+                        phone = values[0].get('value', '')
+                        phone = ''.join(filter(str.isdigit, phone))
+                        print(f"✅ Телефон найден в custom_fields: {phone}")
+                        break
+            
+            # Поиск email
+            for field in custom_fields:
+                field_name = field.get('name', '').lower()
+                if 'email' in field_name or 'почта' in field_name:
+                    values = field.get('values', [])
+                    if values:
+                        email = values[0].get('value', '')
+                        print(f"✅ Email найден: {email}")
+                        break
+        else:
+            # Если структура нестандартная, берем имя из сделки
+            if 'leads[update][0][name]' in 
+                name = data['leads[update][0][name]']
+            elif 'name' in 
+                name = data['name']
+
+        # 2. Универсальный поиск телефона (Regex)
+        # Ищем любую строку, похожую на телефон, во всех значениях
+        phone_pattern = re.compile(r'(?:\+7|8|7)?\s*\(?\d{3}\)?\s*\d{3}[\s-]?\d{2}[\s-]?\d{2}')
         
-        # Очистка телефона (оставляем только цифры)
-        phone = ''.join(filter(str.isdigit, phone))
-        
+        if not phone:  # Если телефон еще не найден
+            for key, value in data.items():
+                # Если ключ содержит слово phone или tel, пробуем взять значение
+                if 'phone' in key.lower() or 'tel' in key.lower():
+                    clean_val = ''.join(filter(str.isdigit, str(value)))
+                    if 10 <= len(clean_val) <= 11:
+                        phone = clean_val
+                        print(f"✅ Телефон найден по ключу {key}: {phone}")
+                        break
+                
+                # Если значение похоже на телефон
+                elif isinstance(value, str) and not phone:
+                    match = phone_pattern.search(value)
+                    if match:
+                        found = match.group(0)
+                        clean_val = ''.join(filter(str.isdigit, found))
+                        if 10 <= len(clean_val) <= 11:
+                            phone = clean_val
+                            print(f"✅ Телефон найден перебором значений: {phone}")
+                            break
+
+        # 3. Универсальный поиск email
+        if not email:
+            email_pattern = re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}')
+            for key, value in data.items():
+                if 'email' in key.lower() or 'почта' in key.lower():
+                    if isinstance(value, str) and email_pattern.search(value):
+                        email = email_pattern.search(value).group(0)
+                        print(f"✅ Email найден по ключу {key}: {email}")
+                        break
+                elif isinstance(value, str) and not email:
+                    match = email_pattern.search(value)
+                    if match:
+                        email = match.group(0)
+                        print(f"✅ Email найден перебором: {email}")
+                        break
+
         if not phone and not email:
-            print(f"❌ Нет телефона или email!")
-            print(f"❌ Имя: {name}")
-            print(f"❌ Все поля: {list(contact.keys())}")
+            print(f"❌ Телефон не найден! Данные: {data}")
             return jsonify({"status": "error", "message": "Нет телефона или email"}), 400
-        
-        # Заголовки для API ListOK
+
+        # Заголовки для ListOK
         headers = {
             "Authorization": f"Bearer {LISTOK_TOKEN}",
             "Content-Type": "application/json",
             "Accept": "application/json"
         }
         
-        # Проверяем, существует ли клиент по телефону
+        # Проверка существования клиента
         if phone:
             check_response = requests.get(
                 f"{LISTOK_DOMAIN}/api/external/v2/contacts?phone={phone}",
@@ -113,8 +137,8 @@ def amo_to_listok():
                         "status": "exists", 
                         "listok_id": existing[0].get('id')
                     }), 200
-        
-        # Создаем нового клиента
+
+        # Создание нового клиента
         payload = {
             "name": name,
             "phone": phone,
@@ -148,7 +172,7 @@ def amo_to_listok():
                 "status": "error", 
                 "details": response.text
             }), 500
-            
+
     except Exception as e:
         print(f"❌ Ошибка: {str(e)}")
         import traceback
