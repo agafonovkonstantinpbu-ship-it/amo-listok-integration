@@ -11,8 +11,8 @@ LISTOK_OFFICE_ID = int(os.getenv("LISTOK_OFFICE_ID", 1))
 LISTOK_SOURCE_ID = int(os.getenv("LISTOK_SOURCE_ID", 1))
 
 # ID и секрет интеграции для OAuth
-INTEGRATION_ID = "a2036432-10fa-4b46-94b0-c79f3f39a4f7"
-INTEGRATION_SECRET = "qYeIvQdR2tZhjZX5hTltBSZYzl8ZFVA8m8LJIeyi"
+INTEGRATION_ID = "a20368eb-ec3a-4d18-99d5-31af6171f296"
+INTEGRATION_SECRET = "PTC0MIXPBChmlXMiOnkXSbeYuEEORbUlJ8f97jXL"
 
 @app.route('/')
 def health():
@@ -148,7 +148,7 @@ def callback():
         "grant_type": "authorization_code",
         "client_id": INTEGRATION_ID,
         "client_secret": INTEGRATION_SECRET,
-        "redirect_uri": "https://scaling-telegram-6974x97v9gv25vqw-5000.app.github.dev/callback",
+        "redirect_uri": "https://scaling-telegram-6974x97v9vgv25vqw-5000.app.github.dev/callback",
         "code": code
     }
     
