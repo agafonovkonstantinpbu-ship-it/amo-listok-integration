@@ -148,7 +148,7 @@ def callback():
         "grant_type": "authorization_code",
         "client_id": INTEGRATION_ID,
         "client_secret": INTEGRATION_SECRET,
-        "redirect_uri": "https://amo-listok-integration.onrender.com/callback",
+        "redirect_uri": "https://scaling-telegram-6974x97v9gv25vqw-5000.app.github.dev/callback",
         "code": code
     }
     
