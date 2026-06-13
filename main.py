@@ -11,8 +11,8 @@ LISTOK_OFFICE_ID = int(os.getenv("LISTOK_OFFICE_ID", 1))
 LISTOK_SOURCE_ID = int(os.getenv("LISTOK_SOURCE_ID", 1))
 
 # ID и секрет интеграции для OAuth
-INTEGRATION_ID = "a1c0f26c-1d41-45cd-b7ca-1d2656fbad4b"
-INTEGRATION_SECRET = "sEvvTEVdgb34RxCBDSXptlolTyzMhlTbK2XHLKQ"
+INTEGRATION_ID = "a2036432-10fa-4b46-94b0-c79f3f39a4f7"
+INTEGRATION_SECRET = "qYeIvQdR2tZhjZX5hTltBSZYzl8ZFVA8m8LJIeyi"
 
 @app.route('/')
 def health():
